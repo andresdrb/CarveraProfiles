@@ -10,7 +10,7 @@
   FORKID {D897E9AA-349A-4011-AA01-06B6CCC181EB}
 */
 
-description = "Makera Carvera Community Post v1.4.6";
+description = "Makera Carvera Community Post v1.4.6 + Tool Names + XY Arc Fix";
 
 vendor = "Makera";
 vendorUrl = "https://www.makera.com";
@@ -74,7 +74,7 @@ minimumCircularSweep = toRad(0.01);
 maximumCircularSweep = toRad(180);
 
 allowHelicalMoves = true;
-allowedCircularPlanes = undefined; // allow any circular motion
+allowedCircularPlanes = (1 << PLANE_XY); // only output circular moves in XY; linearize XZ/YZ arcs to avoid malformed circles
 highFeedrate = (unit == MM ? 3000 : 140);
 
 // user-defined properties
@@ -1239,6 +1239,9 @@ function onSection() {
 
     var tloValue = parseTLO(tool.comment);//A is automatic and is the default, M is manual setting (C=0), a number set the value directly (H=-14)
 
+    // Custom: append Fusion tool description to tool-change lines so the tool name is visible with M6.
+    var toolNameComment = tool.description ? " " + formatComment(tool.description) : "";
+
     var e_manualToolChangeBehavior = getProperty("manualToolChangeBehavior");
 
     if(tool.number > 6 && e_manualToolChangeBehavior == "error6") {
@@ -1254,7 +1257,7 @@ function onSection() {
         toolChangeParameters = toolChangeParameters + " " + shaftParam;
       }
 
-      writeBlock("T" + toolFormat.format(tool.number) +  mFormat.format(6) + " " + toolChangeParameters);
+      writeBlock("T" + toolFormat.format(tool.number) +  mFormat.format(6) + " " + toolChangeParameters + toolNameComment);
 
       if (tool.comment && !getProperty("useToolCommentForChangeParameters")) {
         writeComment(tool.comment);
@@ -1263,16 +1266,16 @@ function onSection() {
 
       if (tloValue && !getProperty("useToolCommentForChangeParameters")) {
         if (tloValue === "A") {
-            writeBlock("T" + toolFormat.format(tool.number) +  mFormat.format(6) + " C1");
+            writeBlock("T" + toolFormat.format(tool.number) +  mFormat.format(6) + " C1" + toolNameComment);
         } else if (tloValue === "M") {
-          writeBlock("T" + toolFormat.format(tool.number) +  mFormat.format(6) + " C0");  
+          writeBlock("T" + toolFormat.format(tool.number) +  mFormat.format(6) + " C0" + toolNameComment);  
         } else {
             var tloFloat = parseFloat(tloValue);
             if (!isNaN(tloFloat)) {
-                writeBlock("T" + toolFormat.format(tool.number) +  mFormat.format(6) + " H" + tloFloat);
-                writeToolBlock(mFormat.format(6), "T" + toolFormat.format(tool.number) + " H" + tloFloat);
+                writeBlock("T" + toolFormat.format(tool.number) +  mFormat.format(6) + " H" + tloFloat + toolNameComment);
+                writeToolBlock(mFormat.format(6), "T" + toolFormat.format(tool.number) + " H" + tloFloat, toolNameComment);
             } else {
-                writeBlock("T" + toolFormat.format(tool.number) +  mFormat.format(6));
+                writeBlock("T" + toolFormat.format(tool.number) +  mFormat.format(6) + toolNameComment);
             }
         }
       } else {
@@ -1283,10 +1286,10 @@ function onSection() {
         if (getProperty("issueColletChangeOnShankSizeChange")){
           toolChangeParameters = toolChangeParameters + " " + shaftParam;
         }
-        writeBlock("T" + toolFormat.format(tool.number) +  mFormat.format(6) + " " + toolChangeParameters);
+        writeBlock("T" + toolFormat.format(tool.number) +  mFormat.format(6) + " " + toolChangeParameters + toolNameComment);
       }
     }else if (tool.number > 6 || tool.manualToolChange) {
-      writeComment("Manual Tool Change To #" + toolFormat.format(tool.number));
+      writeComment("Manual Tool Change To #" + toolFormat.format(tool.number) + (tool.description ? " - " + tool.description : ""));
       if (tool.manualToolChange) {
         writeComment("as a result of manual tool change selected in tool settings");
       }
@@ -1306,7 +1309,7 @@ function onSection() {
           writeBlock("M493.2 T-1");
 
         }
-        writeBlock("T" + toolFormat.format(tool.number) +  mFormat.format(6));
+        writeBlock("T" + toolFormat.format(tool.number) +  mFormat.format(6) + toolNameComment);
 
         if (tool.comment) {
           writeComment(tool.comment);
