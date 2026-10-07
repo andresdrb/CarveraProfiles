@@ -10,7 +10,7 @@
   FORKID {D897E9AA-349A-4011-AA01-06B6CCC181EB}
 */
 
-description = "Makera Carvera Community Post v1.4.6 + Tool Names + XY Arc Fix";
+description = "Makera Carvera Community Post v1.4.6 + MKR Tool Names + XY Arc Fix";
 
 vendor = "Makera";
 vendorUrl = "https://www.makera.com";
@@ -598,6 +598,96 @@ function appendToolField(comment, key, value, format, allowZero) {
 
   See https://cam.autodesk.com/posts/reference/classTool.html
 */
+
+/**
+  Sanitize values written into Makera Studio ;@MKR metadata.
+  The pipe character is the field delimiter, so it must not appear in values.
+*/
+function sanitizeMkrField(value) {
+  if (value === undefined || value === null) {
+    return "";
+  }
+  return String(value)
+    .replace(/[\r\n]+/g, " ")
+    .replace(/\|/g, "/")
+    .replace(/;/g, ",");
+}
+
+function getMkrToolName(tool) {
+  var name = sanitizeMkrField(tool.description);
+  return name ? name : ("Tool " + toolFormat.format(tool.number));
+}
+
+/**
+  Write Makera Studio metadata so the controller can associate T numbers with
+  Fusion tool descriptions.  This follows the ;@MKR schema used by Makera
+  Studio generated files, while intentionally avoiding stock/material/origin
+  metadata that Fusion may not be able to reproduce exactly.
+*/
+function writeMakeraMetadata() {
+  writeln(";@MKR|BEGIN");
+  writeln(";@MKR|SCHEMA|v=1.0.0");
+  writeln(";@MKR|MACHINE|id=Z1|name=Makera Z1");
+  writeln(";@MKR|CAM|id=Fusion360|name=Autodesk Fusion 360");
+  writeln(";@MKR|UNIT|value=" + (unit == MM ? "MM" : "IN"));
+
+  var tools = getToolTable();
+  for (var i = 0; i < tools.getNumberOfTools(); ++i) {
+    var mkrTool = tools.getTool(i);
+    var line = ";@MKR|TOOL|number=" + toolFormat.format(mkrTool.number);
+
+    if (mkrTool.productId) {
+      line += "|id=" + sanitizeMkrField(mkrTool.productId);
+    }
+
+    line += "|name=" + getMkrToolName(mkrTool);
+    line += "|type=" + sanitizeMkrField(getToolTypeName(mkrTool.type));
+
+    var shaft = getShaftDiameter(mkrTool);
+    if (typeof shaft == "number" && !isNaN(shaft) && shaft > 0) {
+      line += "|handlediameter=" + xyzFormat.format(shaft);
+    }
+    if (typeof mkrTool.shoulderLength == "number" && mkrTool.shoulderLength > 0) {
+      line += "|shoulderlength=" + xyzFormat.format(mkrTool.shoulderLength);
+    }
+    if (typeof mkrTool.fluteLength == "number" && mkrTool.fluteLength > 0) {
+      line += "|flutelength=" + xyzFormat.format(mkrTool.fluteLength);
+    }
+    if (typeof mkrTool.diameter == "number" && mkrTool.diameter > 0) {
+      line += "|diameter=" + xyzFormat.format(mkrTool.diameter);
+    }
+    if (typeof mkrTool.tipDiameter == "number" && !isNaN(mkrTool.tipDiameter) && mkrTool.tipDiameter >= 0) {
+      line += "|tipdiameter=" + xyzFormat.format(mkrTool.tipDiameter);
+    }
+    if (typeof mkrTool.cornerRadius == "number" && !isNaN(mkrTool.cornerRadius) && mkrTool.cornerRadius >= 0) {
+      line += "|cornerradius=" + xyzFormat.format(mkrTool.cornerRadius);
+    }
+    if (typeof mkrTool.taperAngle == "number" && mkrTool.taperAngle > 0 && mkrTool.taperAngle < Math.PI) {
+      line += "|angle=" + taperFormat.format(mkrTool.taperAngle);
+    }
+
+    writeln(line);
+  }
+
+  // Include toolpath-to-tool associations, matching Makera Studio's own header style.
+  for (var s = 0; s < getNumberOfSections(); ++s) {
+    var mkrSection = getSection(s);
+    var mkrSectionTool = mkrSection.getTool();
+    var operationName = mkrSection.getParameter("operation-comment", "");
+    if (!operationName) {
+      operationName = "Operation " + (s + 1);
+    }
+    writeln(
+      ";@MKR|TOOLPATH|number=" + (s + 1) +
+      "|tool_number=" + toolFormat.format(mkrSectionTool.number) +
+      "|name=[T" + toolFormat.format(mkrSectionTool.number) + "]" + sanitizeMkrField(operationName)
+    );
+  }
+
+  writeln(";@MKR|END");
+  writeln("");
+}
+
 function dumpToolInformation() {
   var zRanges = {};
   if (is3D()) {
@@ -711,6 +801,9 @@ function onOpen(section) {
   if (!getProperty("separateWordsWithSpace")) {
     setWordSeparator("");
   }
+
+  // Custom: Makera Studio metadata, including tool number -> Fusion description mapping.
+  writeMakeraMetadata();
 
   if (programName) {
     writeComment(programName);
@@ -1176,6 +1269,9 @@ function onSection() {
 
     redirectToFile(path);
 
+    // Custom: keep Makera tool metadata in split output files as well.
+    writeMakeraMetadata();
+
     if (programName) {
       writeComment(programName);
     }
@@ -1211,6 +1307,10 @@ function onSection() {
     }
 
     setCoolant(COOLANT_OFF);
+
+    // Custom: Makera Studio style tool marker, e.g. "; T1-3.175mm Flat End".
+    writeln("; T" + toolFormat.format(tool.number) + "-" + getMkrToolName(tool));
+    writeln("");
 
     // Shank diameter change: add S1-S5 to M6 when shaft diameter changed (S1=3.175mm, S2=4mm, S3=6mm, S4=6.35mm, S5=8mm; do not change numbering)
     // Use shaft segments (Tool tab) to match standard diameter; fallback to tool.shaftDiameter
